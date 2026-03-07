@@ -1,12 +1,19 @@
 AWSTemplateFormatVersion: "2010-09-09"
-Description: Production API stack with Cognito, API Gateway, Lambda, and external APIs
+Description: Production API stack with Cognito, HTTP API Gateway, Lambda, and JWT authentication
+
+Parameters:
+  LambdaCodeBucket:
+    Type: String
+    Description: S3 bucket containing Lambda code zips
+  LambdaCodePrefix:
+    Type: String
+    Description: Prefix path in S3 bucket for Lambda code
 
 Resources:
 
 ############################################
 # Cognito User Pool
 ############################################
-
   UserPool:
     Type: AWS::Cognito::UserPool
     Properties:
@@ -30,11 +37,11 @@ Resources:
       ExplicitAuthFlows:
         - ALLOW_USER_PASSWORD_AUTH
         - ALLOW_REFRESH_TOKEN_AUTH
+        - ALLOW_USER_SRP_AUTH
 
 ############################################
 # IAM Role for Lambda
 ############################################
-
   LambdaExecutionRole:
     Type: AWS::IAM::Role
     Properties:
@@ -52,29 +59,20 @@ Resources:
         - arn:aws:iam::aws:policy/service-role/AWSLambdaBasicExecutionRole
 
 ############################################
-# Lambda Functions
+# Lambda Functions (Option A: S3 ZIP)
 ############################################
-
   JokeLambda:
     Type: AWS::Lambda::Function
     Properties:
       FunctionName: joke-service
-      Runtime: python3.11
-      Handler: index.lambda_handler
+      Runtime: nodejs20.x
+      Handler: index.lambdaHandler
       Role: !GetAtt LambdaExecutionRole.Arn
       Timeout: 10
       MemorySize: 512
       Code:
-        ZipFile: |
-          import json,requests
-          def lambda_handler(event,context):
-              r=requests.get("https://official-joke-api.appspot.com/random_joke",timeout=5)
-              data=r.json()
-              return {
-                "statusCode":200,
-                "headers":{"Content-Type":"application/json"},
-                "body":json.dumps(data)
-              }
+        S3Bucket: !Ref LambdaCodeBucket
+        S3Key: !Sub "${LambdaCodePrefix}/joke-service.zip"
 
   LocationLambda:
     Type: AWS::Lambda::Function
@@ -86,26 +84,12 @@ Resources:
       Timeout: 10
       MemorySize: 512
       Code:
-        ZipFile: |
-          import json,requests
-          def lambda_handler(event,context):
-              r=requests.get("http://ip-api.com/json",timeout=5)
-              data=r.json()
-              return {
-                "statusCode":200,
-                "headers":{"Content-Type":"application/json"},
-                "body":json.dumps({
-                    "country":data["country"],
-                    "city":data["city"],
-                    "lat":data["lat"],
-                    "lon":data["lon"]
-                })
-              }
+        S3Bucket: !Ref LambdaCodeBucket
+        S3Key: !Sub "${LambdaCodePrefix}/location-service.zip"
 
 ############################################
-# API Gateway HTTP API
+# HTTP API Gateway
 ############################################
-
   HttpApi:
     Type: AWS::ApiGatewayV2::Api
     Properties:
@@ -115,7 +99,6 @@ Resources:
 ############################################
 # JWT Authorizer (Cognito)
 ############################################
-
   JwtAuthorizer:
     Type: AWS::ApiGatewayV2::Authorizer
     Properties:
@@ -132,7 +115,6 @@ Resources:
 ############################################
 # Lambda Integrations
 ############################################
-
   JokeIntegration:
     Type: AWS::ApiGatewayV2::Integration
     Properties:
@@ -152,12 +134,11 @@ Resources:
 ############################################
 # API Routes
 ############################################
-
   JokeRoute:
     Type: AWS::ApiGatewayV2::Route
     Properties:
       ApiId: !Ref HttpApi
-      RouteKey: "GET /joke"
+      RouteKey: "GET /api/jokes"
       AuthorizationType: JWT
       AuthorizerId: !Ref JwtAuthorizer
       Target: !Sub integrations/${JokeIntegration}
@@ -166,7 +147,7 @@ Resources:
     Type: AWS::ApiGatewayV2::Route
     Properties:
       ApiId: !Ref HttpApi
-      RouteKey: "GET /location"
+      RouteKey: "GET /api/location"
       AuthorizationType: JWT
       AuthorizerId: !Ref JwtAuthorizer
       Target: !Sub integrations/${LocationIntegration}
@@ -174,7 +155,6 @@ Resources:
 ############################################
 # Lambda Permissions
 ############################################
-
   JokeLambdaPermission:
     Type: AWS::Lambda::Permission
     Properties:
@@ -192,7 +172,6 @@ Resources:
 ############################################
 # Deployment Stage
 ############################################
-
   ApiStage:
     Type: AWS::ApiGatewayV2::Stage
     Properties:
@@ -203,9 +182,7 @@ Resources:
 ############################################
 # Outputs
 ############################################
-
 Outputs:
-
   ApiEndpoint:
     Description: API Gateway endpoint
     Value: !Sub https://${HttpApi}.execute-api.${AWS::Region}.amazonaws.com/prod

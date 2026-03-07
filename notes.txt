@@ -1,0 +1,3 @@
+- Cant set up threat protection features because they are locked away behind paywall
+- Cant set up remember last 2 passwords because its also part of plus plan
+- Sticking with nodejs20.x for runtime cause its more stable than 24
