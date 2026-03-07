@@ -1,0 +1,217 @@
+AWSTemplateFormatVersion: "2010-09-09"
+Description: Production API stack with Cognito, API Gateway, Lambda, and external APIs
+
+Resources:
+
+############################################
+# Cognito User Pool
+############################################
+
+  UserPool:
+    Type: AWS::Cognito::UserPool
+    Properties:
+      UserPoolName: production-user-pool
+      AutoVerifiedAttributes:
+        - email
+      Policies:
+        PasswordPolicy:
+          MinimumLength: 12
+          RequireLowercase: true
+          RequireUppercase: true
+          RequireNumbers: true
+          RequireSymbols: true
+
+  UserPoolClient:
+    Type: AWS::Cognito::UserPoolClient
+    Properties:
+      ClientName: production-client
+      UserPoolId: !Ref UserPool
+      GenerateSecret: false
+      ExplicitAuthFlows:
+        - ALLOW_USER_PASSWORD_AUTH
+        - ALLOW_REFRESH_TOKEN_AUTH
+
+############################################
+# IAM Role for Lambda
+############################################
+
+  LambdaExecutionRole:
+    Type: AWS::IAM::Role
+    Properties:
+      RoleName: lambda-api-role
+      AssumeRolePolicyDocument:
+        Version: "2012-10-17"
+        Statement:
+          - Effect: Allow
+            Principal:
+              Service:
+                - lambda.amazonaws.com
+            Action:
+              - sts:AssumeRole
+      ManagedPolicyArns:
+        - arn:aws:iam::aws:policy/service-role/AWSLambdaBasicExecutionRole
+
+############################################
+# Lambda Functions
+############################################
+
+  JokeLambda:
+    Type: AWS::Lambda::Function
+    Properties:
+      FunctionName: joke-service
+      Runtime: python3.11
+      Handler: index.lambda_handler
+      Role: !GetAtt LambdaExecutionRole.Arn
+      Timeout: 10
+      MemorySize: 512
+      Code:
+        ZipFile: |
+          import json,requests
+          def lambda_handler(event,context):
+              r=requests.get("https://official-joke-api.appspot.com/random_joke",timeout=5)
+              data=r.json()
+              return {
+                "statusCode":200,
+                "headers":{"Content-Type":"application/json"},
+                "body":json.dumps(data)
+              }
+
+  LocationLambda:
+    Type: AWS::Lambda::Function
+    Properties:
+      FunctionName: location-service
+      Runtime: python3.11
+      Handler: index.lambda_handler
+      Role: !GetAtt LambdaExecutionRole.Arn
+      Timeout: 10
+      MemorySize: 512
+      Code:
+        ZipFile: |
+          import json,requests
+          def lambda_handler(event,context):
+              r=requests.get("http://ip-api.com/json",timeout=5)
+              data=r.json()
+              return {
+                "statusCode":200,
+                "headers":{"Content-Type":"application/json"},
+                "body":json.dumps({
+                    "country":data["country"],
+                    "city":data["city"],
+                    "lat":data["lat"],
+                    "lon":data["lon"]
+                })
+              }
+
+############################################
+# API Gateway HTTP API
+############################################
+
+  HttpApi:
+    Type: AWS::ApiGatewayV2::Api
+    Properties:
+      Name: production-http-api
+      ProtocolType: HTTP
+
+############################################
+# JWT Authorizer (Cognito)
+############################################
+
+  JwtAuthorizer:
+    Type: AWS::ApiGatewayV2::Authorizer
+    Properties:
+      ApiId: !Ref HttpApi
+      AuthorizerType: JWT
+      IdentitySource:
+        - "$request.header.Authorization"
+      Name: CognitoAuthorizer
+      JwtConfiguration:
+        Audience:
+          - !Ref UserPoolClient
+        Issuer: !Sub https://cognito-idp.${AWS::Region}.amazonaws.com/${UserPool}
+
+############################################
+# Lambda Integrations
+############################################
+
+  JokeIntegration:
+    Type: AWS::ApiGatewayV2::Integration
+    Properties:
+      ApiId: !Ref HttpApi
+      IntegrationType: AWS_PROXY
+      IntegrationUri: !GetAtt JokeLambda.Arn
+      PayloadFormatVersion: "2.0"
+
+  LocationIntegration:
+    Type: AWS::ApiGatewayV2::Integration
+    Properties:
+      ApiId: !Ref HttpApi
+      IntegrationType: AWS_PROXY
+      IntegrationUri: !GetAtt LocationLambda.Arn
+      PayloadFormatVersion: "2.0"
+
+############################################
+# API Routes
+############################################
+
+  JokeRoute:
+    Type: AWS::ApiGatewayV2::Route
+    Properties:
+      ApiId: !Ref HttpApi
+      RouteKey: "GET /joke"
+      AuthorizationType: JWT
+      AuthorizerId: !Ref JwtAuthorizer
+      Target: !Sub integrations/${JokeIntegration}
+
+  LocationRoute:
+    Type: AWS::ApiGatewayV2::Route
+    Properties:
+      ApiId: !Ref HttpApi
+      RouteKey: "GET /location"
+      AuthorizationType: JWT
+      AuthorizerId: !Ref JwtAuthorizer
+      Target: !Sub integrations/${LocationIntegration}
+
+############################################
+# Lambda Permissions
+############################################
+
+  JokeLambdaPermission:
+    Type: AWS::Lambda::Permission
+    Properties:
+      FunctionName: !Ref JokeLambda
+      Action: lambda:InvokeFunction
+      Principal: apigateway.amazonaws.com
+
+  LocationLambdaPermission:
+    Type: AWS::Lambda::Permission
+    Properties:
+      FunctionName: !Ref LocationLambda
+      Action: lambda:InvokeFunction
+      Principal: apigateway.amazonaws.com
+
+############################################
+# Deployment Stage
+############################################
+
+  ApiStage:
+    Type: AWS::ApiGatewayV2::Stage
+    Properties:
+      ApiId: !Ref HttpApi
+      StageName: prod
+      AutoDeploy: true
+
+############################################
+# Outputs
+############################################
+
+Outputs:
+
+  ApiEndpoint:
+    Description: API Gateway endpoint
+    Value: !Sub https://${HttpApi}.execute-api.${AWS::Region}.amazonaws.com/prod
+
+  CognitoUserPoolId:
+    Value: !Ref UserPool
+
+  CognitoClientId:
+    Value: !Ref UserPoolClient
