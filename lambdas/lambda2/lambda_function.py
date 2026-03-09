@@ -3,6 +3,7 @@ import urllib.request
 
 def lambda_handler(event, context):
   try:
+    # Fetch the client's location using the ip-api service (since this is running on AWS it will return server location)
     with urllib.request.urlopen("http://ip-api.com/json", timeout=5) as response:
       data = json.loads(response.read().decode("utf-8"))
 

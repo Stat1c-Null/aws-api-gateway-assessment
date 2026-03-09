@@ -10,6 +10,7 @@ document.getElementById("locationBtn").addEventListener("click", () => callApi("
 
 init();
 
+//Check for auth code in URL and exchange for tokens if present
 async function init() {
   const params = new URLSearchParams(window.location.search);
   const code = params.get("code");
@@ -26,6 +27,7 @@ async function init() {
   renderAuthState();
 }
 
+// Update UI based on authentication state
 function renderAuthState() {
   const accessToken = sessionStorage.getItem("access_token");
   const idToken = sessionStorage.getItem("id_token");
@@ -37,6 +39,7 @@ function renderAuthState() {
   }
 }
 
+//Login using PKCE flow
 async function login() {
   const codeVerifier = generateRandomString(64);
   const codeChallenge = await pkceChallengeFromVerifier(codeVerifier);
@@ -54,6 +57,7 @@ async function login() {
   window.location.href = authUrl.toString();
 }
 
+//Logout by clearing tokens
 function logout() {
   sessionStorage.removeItem("access_token");
   sessionStorage.removeItem("id_token");
@@ -67,6 +71,7 @@ function logout() {
   window.location.href = logoutUrl.toString();
 }
 
+//Exchange authorization code for tokens at the token endpoint
 async function exchangeCodeForTokens(code) {
   const codeVerifier = sessionStorage.getItem("pkce_code_verifier");
   if (!codeVerifier) {
@@ -101,6 +106,7 @@ async function exchangeCodeForTokens(code) {
   sessionStorage.setItem("refresh_token", tokens.refresh_token || "");
 }
 
+//Call protected API with access token in Authorization header
 async function callApi(path) {
   const token = sessionStorage.getItem("access_token") || sessionStorage.getItem("id_token");
 
