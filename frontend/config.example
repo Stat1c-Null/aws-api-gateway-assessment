@@ -1,0 +1,7 @@
+window.APP_CONFIG = {
+  region: "us-east-1",
+  userPoolDomain: "YOUR_COGNITO_DOMAIN_PREFIX.auth.us-east-1.amazoncognito.com",
+  clientId: "YOUR_PUBLIC_FRONTEND_APP_CLIENT_ID",
+  redirectUri: window.location.origin + "/",
+  apiBaseUrl: "https://YOUR_API_ID.execute-api.us-east-1.amazonaws.com/prod"
+};

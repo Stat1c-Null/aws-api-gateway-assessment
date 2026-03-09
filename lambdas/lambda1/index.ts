@@ -1,4 +1,4 @@
-export const jokeHandler = async () => {
+export const handler = async () => {
   const response = await fetch("https://official-joke-api.appspot.com/random_joke");
   if (!response.ok) {
     return {

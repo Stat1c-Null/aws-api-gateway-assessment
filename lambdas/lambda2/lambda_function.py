@@ -1,7 +1,7 @@
 import json
 import urllib.request
 
-def locationHandler(event, context):
+def lambda_handler(event, context):
   try:
     with urllib.request.urlopen("http://ip-api.com/json", timeout=5) as response:
       data = json.loads(response.read().decode("utf-8"))
